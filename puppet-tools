@@ -1,0 +1,244 @@
+#!/bin/bash
+# A set of deployment tools for Puppet 3.
+
+if [ "$(lsb_release --id --short)" != 'Ubuntu' ]; then
+  echo 'Error: Distributor ID is not Ubuntu'
+  exit 1
+fi
+
+case $1 in
+  check)
+    REPLY=0
+    echo -n 'Checking "puppet" package... '
+    dpkg -s puppet | grep 'Ubuntu Developers' > /dev/null 2>&1
+    if [ $? != '0' ]; then
+      dpkg -s puppet | grep 'Puppet Labs' > /dev/null 2>&1
+      if [ $? == '0' ]; then
+        echo 'Info: Maintainer for package "puppet" is Puppet Labs'
+        REPLY=1
+      else
+        echo 'Error: Unknown maintainer for package "puppet"'
+        REPLY=2
+      fi
+    else
+      dpkg -s puppet | grep 'Version: 3.4.3-1' > /dev/null
+      if [ $? == '0' ]; then
+        echo 'OK'
+      else
+        echo 'version mismatch'
+        REPLY=1
+      fi
+    fi
+    echo -n 'Checking "puppet-common" package... '
+    dpkg -s puppet-common | grep 'Ubuntu Developers' > /dev/null 2>&1
+    if [ $? != '0' ]; then
+      dpkg -s puppet-common | grep 'Puppet Labs' > /dev/null 2>&1
+      if [ $? == '0' ]; then
+        echo 'Info: Maintainer for package "puppet-common" is Puppet Labs'
+        REPLY=1
+      else
+        echo 'Error: Unknown maintainer for package "puppet-common"'
+        REPLY=2
+      fi
+    else
+      dpkg -s puppet-common | grep 'Version: 3.4.3-1' > /dev/null
+      if [ $? == '0' ]; then
+        echo 'OK'
+      else
+        echo 'version mismatch'
+        REPLY=1
+      fi
+    fi
+    echo -n 'Checking "puppetlabs-release" package... '
+    dpkg -s puppetlabs-release > /dev/null 2>&1
+    if [ $? != '0' ]; then
+      echo 'OK'
+    else
+      echo 'installed'
+      REPLY=1
+    fi
+    if [ $REPLY == '0' ]; then
+      if [[ $2 == '--strict' ]]; then
+        echo 'Info: Strict check returned OK'
+        exit 0
+      else
+        echo 'Info: Check returned OK'
+        exit 0
+      fi
+    elif [ $REPLY == '1' ]; then
+      if [[ $2 == '--strict' ]]; then
+        echo 'Error: Strict check returned not OK (see above)'
+        exit 1
+      else
+        echo 'Info: Check returned OK (see above)'
+        exit 0
+      fi
+    elif [ $REPLY == '2' ]; then
+      if [[ $2 == '--strict' ]]; then
+        echo 'Error: Strict check returned not OK (see above)'
+        exit 1
+      else
+        echo 'Error: Check returned not OK (see above)'
+        exit 1
+      fi
+    fi
+    ;;
+  help|--help)
+    echo 'puppet-tools, a set of deployment tools for Puppet 3.'
+    echo 'Usage: ./puppet-tools <subcommand>'
+    echo
+    echo 'Available subcommands:'
+    echo
+    echo '  check             Check for optimal deployment of Puppet'
+    echo '  help              Display usage and available subcommands'
+    echo '  install           Perform automated install of Puppet'
+    echo '  uninstall         Perform automated uninstall of Puppet'
+    echo '    --assume-yes    Assume "yes" as answer to all prompts'
+    echo '    --simulate      Perform a simulation of events that would occur'
+    exit 0
+    ;;
+  uninstall)
+    if [[ $2 == '--simulate' ]]; then
+      echo 'Info: Simulating...'
+      REPLY=0
+      dpkg -s puppet > /dev/null 2>&1
+      if [ $? == '0' ]; then
+        echo 'Info: Package "puppet" would have been purged'
+        REPLY=1
+      fi
+      if [ "$(dpkg -s puppet-common | wc -l)" != '0' ]; then
+        echo 'Info: Package "puppet-common" would have been purged'
+        REPLY=1
+      fi
+      if [ "$(dpkg -s puppetlabs-release | wc -l)" != '0' ]; then
+        echo 'Info: Package "puppetlabs-release" would have been purged'
+        REPLY=1
+      fi
+      if [ -d /var/lib/puppet ]; then
+        echo 'Info: Directory /var/lib/puppet would have been removed'
+        REPLY=1
+      fi
+      if [ -d /etc/puppet ]; then
+        echo 'Info: Directory /etc/puppet would have been removed'
+        REPLY=1
+      fi
+      if [ $REPLY == '1' ]; then
+        echo 'Info: Event(s) would have been performed (see above)'
+      elif [ $REPLY == '0' ]; then
+        echo 'Info: No event(s) would have been performed'
+      fi
+      exit 0
+    elif [ "$(id -u)" != '0' ]; then
+      echo 'Error: Current user must be root'
+      exit 1
+    else
+      if [[ $2 == '--assume-yes' ]]; then
+        echo -n 'Uninstalling in 5 seconds... ' && sleep 5 && echo
+      fi
+      dpkg -s puppet > /dev/null 2>&1
+      if [ $? == '0' ]; then
+        echo 'Info: Package "puppet" is already installed'
+        echo -n 'Info: '
+        echo `dpkg -s puppet | grep Maintainer: | head -n 1`
+        echo 'Info: Package "puppet" will be purged'
+        if [[ $2 == '--assume-yes' ]]; then
+          echo -n 'Purging in 15 seconds... ' && sleep 5 && echo
+          echo -n 'Purging in 10 seconds... ' && sleep 5 && echo
+          echo -n 'Purging in 5 seconds... ' && sleep 5 && echo
+          echo apt-get -y purge puppet
+          apt-get -y purge puppet
+          $0 $1 $2
+          if [ $? == '0' ]; then
+            exit 0
+          else
+            exit 1
+          fi
+        else
+          read -p 'Do you want to continue [y/n]? '
+          if [[ $REPLY == 'y' ]]; then
+            echo apt-get -y purge puppet
+            apt-get -y purge puppet
+            $0 $1 $2
+            if [ $? == '0' ]; then
+              exit 0
+            else
+              exit 1
+            fi
+          elif [ $REPLY == 'n' ]; then
+            exit 1
+          fi
+        fi
+      elif [ "$(dpkg -s puppet-common | wc -l)" != '0' ]; then
+        echo 'Info: Package "puppet-common" is already installed'
+        echo -n 'Info: '
+        echo `dpkg -s puppet-common | grep Maintainer: | head -n 1`
+        echo 'Info: Package "puppet-common" will be purged'
+        echo -n 'Purging in 15 seconds... ' && sleep 5 && echo
+        echo -n 'Purging in 10 seconds... ' && sleep 5 && echo
+        echo -n 'Purging in 5 seconds... ' && sleep 5 && echo
+        echo apt-get -y purge puppet-common
+        apt-get -y purge puppet-common
+        $0
+        if [ $? == '0' ]; then
+          exit 0
+        else
+          exit 1
+        fi
+      elif [ "$(dpkg -s puppetlabs-release | wc -l)" != '0' ]; then
+        echo 'Info: Package "puppetlabs-release" is already installed'
+        echo -n 'Info: '
+        echo `dpkg -s puppetlabs-release | grep Maintainer: | head -n 1`
+        echo 'Info: Package "puppetlabs-release" will be purged'
+        echo -n 'Purging in 15 seconds... ' && sleep 5 && echo
+        echo -n 'Purging in 10 seconds... ' && sleep 5 && echo
+        echo -n 'Purging in 5 seconds... ' && sleep 5 && echo
+        echo apt-get -y purge puppetlabs-release
+        apt-get -y purge puppetlabs-release
+        $0
+        if [ $? == '0' ]; then
+          exit 0
+        else
+          exit 1
+        fi
+      elif [ -d /var/lib/puppet ]; then
+        echo 'Info: Directory /var/lib/puppet exists'
+        echo 'Info: Contents of /var/lib/puppet:'
+        ls -Ahl /var/lib/puppet
+        echo 'Info: Directory /var/lib/puppet will be removed'
+        echo -n 'Removing in 15 seconds... ' && sleep 5 && echo
+        echo -n 'Removing in 10 seconds... ' && sleep 5 && echo
+        echo -n 'Removing in 5 seconds... ' && sleep 5 && echo
+        echo rm -r /var/lib/puppet
+        rm -r /var/lib/puppet
+        $0
+        if [ $? == '0' ]; then
+          exit 0
+        else
+          exit 1
+        fi
+      elif [ -d /etc/puppet ]; then
+        echo 'Info: Directory /etc/puppet exists'
+        echo 'Info: Contents of /etc/puppet:'
+        ls -Ahl /etc/puppet
+        echo 'Info: Directory /etc/puppet will be removed'
+        echo -n 'Removing in 15 seconds... ' && sleep 5 && echo
+        echo -n 'Removing in 10 seconds... ' && sleep 5 && echo
+        echo -n 'Removing in 5 seconds... ' && sleep 5 && echo
+        echo rm -r /etc/puppet
+        rm -r /etc/puppet
+        $0
+        if [ $? == '0' ]; then
+          exit 0
+        else
+          exit 1
+        fi
+      else
+        echo 'Info: Puppet is not installed'
+        exit 0
+      fi
+    fi
+    ;;
+  *)
+    echo "See 'puppet-tools help' for help on available subcommands"
+    exit 0
+esac
